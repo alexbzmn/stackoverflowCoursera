@@ -1,7 +1,6 @@
 package stackoverflow
 
-import org.apache.spark.SparkConf
-import org.apache.spark.SparkContext
+import org.apache.spark.{HashPartitioner, RangePartitioner, SparkConf, SparkContext}
 import org.apache.spark.SparkContext._
 import org.apache.spark.rdd.RDD
 
@@ -21,16 +20,27 @@ object StackOverflow extends StackOverflow {
   /** Main function */
   def main(args: Array[String]): Unit = {
 
-    val lines = sc.textFile("src/main/resources/stackoverflow/stackoverflow.csv")
-    val raw = timed("rawPostings", rawPostings(lines))
-    val grouped = timed("groupedPostings", groupedPostings(raw))
-    val scored = timed("scoredPostings", scoredPostings(grouped))
-    val vectors = timed("vectorPostings", vectorPostings(scored)).cache()
-    assert(vectors.count() == 2121822, "Incorrect number of vectors: " + vectors.count())
 
-    val means = timed("kmeans", kmeans(sampleVectors(vectors), vectors, debug = true))
-    val results = timed("clusterResults", clusterResults(means, vectors))
-    printResults(results)
+    val start = System.currentTimeMillis()
+
+    val lines = sc.textFile("src/main/resources/stackoverflow/stackoverflow.csv")
+    val raw = rawPostings(lines)
+    val grouped = groupedPostings(raw).collect()
+
+    val stop = System.currentTimeMillis()
+    println(s" ============= Processing groupedPostings took ${stop - start} ms. ==============\n")
+    print()
+
+//    val scored = scoredPostings(grouped)
+//    val vectors = vectorPostings(scored).cache()
+//
+//    assert(vectors.count() == 2121822, "Incorrect number of vectors: " + vectors.count())
+
+
+    //
+//    val means =kmeans(sampleVectors(vectors), vectors, debug = true)
+//    val results =  clusterResults(means, vectors)
+//    printResults(results)
   }
 }
 
@@ -78,7 +88,17 @@ class StackOverflow extends Serializable {
 
 
   /** Group the questions and answers together */
-  def groupedPostings(postings: RDD[Posting]): RDD[(Int, Iterable[(Posting, Posting)])] = {
+  def groupedPostings(postings: RDD[Posting]): RDD[(Int, Iterable[(Posting, Posting)])] = {\
+    val tunedPartitioner = new RangePartitioner(8, postings.map(p => (p.id, p)))
+
+//    postings.map(p => {
+//      if (p.postingType == 2 && p.parentId.isDefined) {
+//        (p.parentId.get, p)
+//      } else {
+//        (p.id, p)
+//      }
+//    })
+
     var answers = postings.filter(p => p.postingType == 1).map(p => (p.id, p))
     var questions = postings.filter(p => p.postingType == 2 && p.parentId.isDefined).map(p => (p.parentId.get, p))
 
@@ -224,7 +244,7 @@ class StackOverflow extends Serializable {
     val start = System.currentTimeMillis()
     val result = code
     val stop = System.currentTimeMillis()
-    timing.append(s"Processing $label took ${stop - start} ms.\n")
+    timing.append(s" ============= Processing $label took ${stop - start} ms. ==============\n")
     result
   }
 
