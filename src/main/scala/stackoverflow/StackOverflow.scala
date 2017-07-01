@@ -4,6 +4,7 @@ import org.apache.spark.SparkConf
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkContext._
 import org.apache.spark.rdd.RDD
+
 import annotation.tailrec
 import scala.reflect.ClassTag
 
@@ -20,15 +21,15 @@ object StackOverflow extends StackOverflow {
   /** Main function */
   def main(args: Array[String]): Unit = {
 
-    val lines   = sc.textFile("src/main/resources/stackoverflow/stackoverflow.csv")
-    val raw     = rawPostings(lines)
-    val grouped = groupedPostings(raw)
-    val scored  = scoredPostings(grouped)
-    val vectors = vectorPostings(scored).cache()
+    val lines = sc.textFile("src/main/resources/stackoverflow/stackoverflow.csv")
+    val raw = timed("rawPostings", rawPostings(lines))
+    val grouped = timed("groupedPostings", groupedPostings(raw))
+    val scored = timed("scoredPostings", scoredPostings(grouped))
+    val vectors = timed("vectorPostings", vectorPostings(scored)).cache()
     assert(vectors.count() == 2121822, "Incorrect number of vectors: " + vectors.count())
 
-    val means   = kmeans(sampleVectors(vectors), vectors, debug = true)
-    val results = clusterResults(means, vectors)
+    val means = timed("kmeans", kmeans(sampleVectors(vectors), vectors, debug = true))
+    val results = timed("clusterResults", clusterResults(means, vectors))
     printResults(results)
   }
 }
@@ -217,8 +218,15 @@ class StackOverflow extends Serializable {
     }
   }
 
+  val timing = new StringBuffer
 
-
+  def timed[T](label: String, code: => T): T = {
+    val start = System.currentTimeMillis()
+    val result = code
+    val stop = System.currentTimeMillis()
+    timing.append(s"Processing $label took ${stop - start} ms.\n")
+    result
+  }
 
   //
   //
@@ -295,19 +303,7 @@ class StackOverflow extends Serializable {
     val sample = closestGrouped.take(10)
     println(sample)
 
-    val median = closestGrouped.mapValues(vs => {
-
-      val sortedByScore = vs.toList.sortBy(-_._2)
-      val groupedTuples = vs.groupBy(f => f._1)
-      val maxBySize = groupedTuples.mapValues(_.size).maxBy(_._2)
-
-      val langLabel: String = langs(maxBySize._1 / langSpread) // most common language in the cluster
-      val langPercent: Double = (maxBySize._2 / vs.size) * 100 // percent of the questions in the most common language
-      val clusterSize: Int = vs.size
-      val medianScore: Int = sortedByScore(sortedByScore.size / 2)._2
-
-      (langLabel, langPercent, clusterSize, medianScore)
-    })
+    val median = closestGrouped.mapValues(computeMetrics)
 
     median.collect().map(_._2).sortBy(_._4)
   }
