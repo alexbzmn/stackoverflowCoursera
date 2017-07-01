@@ -21,24 +21,24 @@ object StackOverflow extends StackOverflow {
   def main(args: Array[String]): Unit = {
 
 
-    //    val start = System.currentTimeMillis()
+    val start = System.currentTimeMillis()
 
-    val lines = sc.textFile("src/main/resources/stackoverflow/stackoverflow.csv")
+    val lines = sc.textFile("src/main/resources/stackoverflow/stackoverflow.csv").cache()
     val raw = rawPostings(lines)
     val grouped = groupedPostings(raw)
     val scored = scoredPostings(grouped)
-    val vectors = vectorPostings(scored).cache()
+    val vectors = vectorPostings(scored)
 
     //    assert(vectors.count() == 2121822, "Incorrect number of vectors: " + vectors.count())
 
-    val means = kmeans(sampleVectors(vectors), vectors)
+    val sampleVectorsVal = sampleVectors(vectors)
 
-
+    val means = kmeans(sampleVectorsVal, vectors)
     val results = clusterResults(means, vectors)
-    printResults(results)
+    //    printResults(results)
 
-    //    val stop = System.currentTimeMillis()
-    //    println(s" ============= Processing all took ${stop - start} ms. ==============\n")
+    val stop = System.currentTimeMillis()
+    println(s" ============= Processing all took ${stop - start} ms. ==============\n")
     //    print()
   }
 }
@@ -309,10 +309,15 @@ class StackOverflow extends Serializable {
     val groupedTuples = vs.groupBy(f => f._1)
     val maxBySize = groupedTuples.mapValues(_.size).maxBy(_._2)
 
+    val middleIndex = sortedByScore.size / 2
+
+    val medianVal = if (sortedByScore.size % 2 == 0)
+      sortedByScore(middleIndex)._2.toInt else (sortedByScore(middleIndex)._2 + sortedByScore(middleIndex + 1)._2) / 2
+
     val langLabel: String = langs(maxBySize._1 / langSpread) // most common language in the cluster
     val langPercent: Double = (maxBySize._2 / vs.size) * 100 // percent of the questions in the most common language
     val clusterSize: Int = vs.size
-    val medianScore: Int = sortedByScore(sortedByScore.size / 2)._2
+    val medianScore: Int = medianVal
 
     (langLabel, langPercent, clusterSize, medianScore)
   }
