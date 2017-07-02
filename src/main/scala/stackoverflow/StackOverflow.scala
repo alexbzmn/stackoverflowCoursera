@@ -1,11 +1,9 @@
 package stackoverflow
 
-import org.apache.spark.{HashPartitioner, RangePartitioner, SparkConf, SparkContext}
-import org.apache.spark.SparkContext._
 import org.apache.spark.rdd.RDD
+import org.apache.spark.{SparkConf, SparkContext}
 
-import annotation.tailrec
-import scala.reflect.ClassTag
+import scala.annotation.tailrec
 
 /** A raw stackoverflow posting, either a question or an answer */
 case class Posting(postingType: Int, id: Int, acceptedAnswer: Option[Int], parentId: Option[Int], score: Int, tags: Option[String]) extends Serializable
@@ -14,7 +12,7 @@ case class Posting(postingType: Int, id: Int, acceptedAnswer: Option[Int], paren
 /** The main class */
 object StackOverflow extends StackOverflow {
 
-  @transient lazy val conf: SparkConf = new SparkConf().setMaster("local[4]").setAppName("StackOverflow")
+  @transient lazy val conf: SparkConf = new SparkConf().setMaster("local").setAppName("StackOverflow")
   @transient lazy val sc: SparkContext = new SparkContext(conf)
 
   /** Main function */
@@ -23,7 +21,7 @@ object StackOverflow extends StackOverflow {
 
     val start = System.currentTimeMillis()
 
-    val lines = sc.textFile("src/main/resources/stackoverflow/stackoverflow.csv").cache()
+    val lines = sc.textFile("src/main/resources/stackoverflow/stackoverflow.csv")
     val raw = rawPostings(lines)
     val grouped = groupedPostings(raw)
     val scored = scoredPostings(grouped)
@@ -31,15 +29,13 @@ object StackOverflow extends StackOverflow {
 
     //    assert(vectors.count() == 2121822, "Incorrect number of vectors: " + vectors.count())
 
-    val sampleVectorsVal = sampleVectors(vectors)
-
-    val means = kmeans(sampleVectorsVal, vectors)
+    val means = kmeans(sampleVectors(vectors), vectors)
     val results = clusterResults(means, vectors)
-    //    printResults(results)
+
+    printResults(results)
 
     val stop = System.currentTimeMillis()
     println(s" ============= Processing all took ${stop - start} ms. ==============\n")
-    //    print()
   }
 }
 
@@ -112,11 +108,11 @@ class StackOverflow extends Serializable {
       highScore
     }
 
-    var postings = grouped.map(g => g._2)
-    var questionAndAnswers =
+    val postings = grouped.map(g => g._2)
+    val questionAndAnswers =
       postings.flatMap(it => for (p <- it; if p._2.acceptedAnswer.isEmpty) yield (p._1, p._2)).groupByKey()
 
-    var questionsAndScores = questionAndAnswers.map(p => (p._1, answerHighScore(p._2.toArray)))
+    val questionsAndScores = questionAndAnswers.map(p => (p._1, answerHighScore(p._2.toArray)))
 
     questionsAndScores
   }
@@ -139,9 +135,8 @@ class StackOverflow extends Serializable {
     }
 
     scored
-      .map(s => (firstLangInTag(s._1.tags, langs), s._2))
-      .filter(s => s._1.isDefined)
-      .map(s => (s._1.get * langSpread, s._2))
+      .map(s => (firstLangInTag(s._1.tags, langs).get * langSpread, s._2))
+      .cache()
   }
 
 
@@ -202,7 +197,6 @@ class StackOverflow extends Serializable {
 
     val newMeans = means.clone()
     closest
-      .filter(el => means.indices.contains(el._1))
       .foreach(el => newMeans(el._1) = averageVectors(el._2))
 
     // TODO: Fill in the newMeans array
@@ -222,7 +216,7 @@ class StackOverflow extends Serializable {
     if (converged(distance))
       newMeans
     else if (iter < kmeansMaxIterations)
-      kmeans(newMeans, vectors.cache(), iter + 1, debug)
+      kmeans(newMeans, vectors, iter + 1, debug)
     else {
       println("Reached max iterations!")
       newMeans
